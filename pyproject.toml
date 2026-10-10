@@ -1,0 +1,5 @@
+[app]
+title = "Double Tap Lock"
+name = "doubletap"
+domain = "org.example"   # name + domain must match PKG in main.py
+version = "0.1"
