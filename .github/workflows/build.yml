@@ -61,9 +61,12 @@ jobs:
             start=$((n-70)); [ $start -lt 1 ] && start=1
             sed -n "${start},$((n+1))p" build.log | cut -c1-300
           fi
-          echo "=== error-like lines ==="
-          grep -nE "BUILD FAILED|error:|Error:|FAILURE|Exception|No such file|not found|cannot find" build.log \
-            | grep -v "^[0-9]*:#" | head -30 | cut -c1-300
+          echo "=== gradle / packaging errors ==="
+          grep -nE "What went wrong|Execution failed|AAPT|aapt|Manifest|manifest|error: |FAILED|Could not|\.java:[0-9]+" build.log \
+            | grep -vE "^[0-9]+:(export|#)" \
+            | awk -F: '$1 > 20000' | head -40 | cut -c1-300
+          echo "=== last 40 non-env lines ==="
+          grep -vE "^export |^#" build.log | tail -n 40 | cut -c1-300
 
       - name: Upload full log on failure
         if: failure()
