@@ -1,0 +1,92 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip unzip autoconf automake libtool \
+            pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
+            cmake libffi-dev libssl-dev
+
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer "cython<3" setuptools virtualenv
+
+      - name: Generate buildozer.spec and Android files
+        run: python build_setup.py
+
+      - name: Cache Buildozer
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buildozer
+            ~/.buildozer
+          key: buildozer-${{ hashFiles('build_setup.py', 'pyproject.toml', 'requirements.txt') }}
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Show end of log on failure
+        if: failure()
+        run: |
+          n=$(grep -n "Command failed" build.log | head -1 | cut -d: -f1)
+          if [ -n "$n" ]; then
+            echo "=== 70 lines before the failure (line $n) ==="
+            start=$((n-70)); [ $start -lt 1 ] && start=1
+            sed -n "${start},$((n+1))p" build.log | cut -c1-300
+          fi
+          echo "=== error-like lines ==="
+          grep -nE "BUILD FAILED|error:|Error:|FAILURE|Exception|No such file|not found|cannot find" build.log \
+            | grep -v "^[0-9]*:#" | head -30 | cut -c1-300
+
+      - name: Upload full log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag -y || true
+          gh release create latest bin/*.apk \
+            --title "Latest APK" \
+            --notes "Built from commit ${{ github.sha }}" \
+            --target ${{ github.sha }} \
+            --prerelease
+
+      - name: Upload APK artifact (optional)
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: double-tap-lock-apk
+          path: bin/*.apk
+          retention-days: 3
